@@ -56,9 +56,16 @@ func handleMessages() {
 }
 
 func main() {
-	http.HandleFunc("/ws", handleConnections)
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Hello, World!"))
+	})
+
+	mux.HandleFunc("/ws", handleConnections)
 	go handleMessages()
 
-	log.Println("Server started on :8000")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	log.Println("Server started on :8080")
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }

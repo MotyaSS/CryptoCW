@@ -8,7 +8,7 @@ function App() {
 
     useEffect(() => {
         // Create WebSocket connection
-        ws.current = new WebSocket('ws://localhost:8000/ws');
+        ws.current = new WebSocket('ws://localhost:8080/ws');
 
         // Connection opened
         ws.current.onopen = () => {
