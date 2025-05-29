@@ -20,6 +20,7 @@ func NewService() *Service {
 var RoomExistsError = errors.New("room already exists")
 var RoomNotFoundError = errors.New("room not found")
 var RoomFullError = errors.New("room is full")
+var RoomPasswordError = errors.New("room password is incorrect")
 
 func (s *Service) CreateRoom(name string, password string) error {
 
@@ -33,12 +34,14 @@ func (s *Service) CreateRoom(name string, password string) error {
 	s.Rooms[name] = &entity.Room{
 		Name:     name,
 		Password: password,
+		ToC1:     make(chan entity.Message, 10), // initialize channels
+		ToC2:     make(chan entity.Message, 10),
 	}
 
 	return nil
 }
 
-func (s *Service) DeleteRoom(name string) error {
+func (s *Service) DeleteRoom(name string, password string) error {
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -51,33 +54,44 @@ func (s *Service) DeleteRoom(name string) error {
 	return RoomNotFoundError
 }
 
-func (s *Service) Connect(roomName string, c *entity.Client) error {
-
+func (s *Service) Connect(roomName, roomPassword string, newClient *entity.Client) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if _, ok := s.Rooms[roomName]; !ok {
+	room, ok := s.Rooms[roomName]
+	if !ok {
 		return RoomNotFoundError
 	}
+	if room.Password != roomPassword {
+		return RoomPasswordError
+	}
+	newClient.Room = room
+	if room.Client1 == nil {
+		room.Client1 = newClient
+		newClient.Room = room
+		newClient.To = room.ToC1
+		newClient.From = room.ToC2
+		return nil
+	}
 
-	if s.Rooms[roomName].Client1 != nil {
-		s.Rooms[roomName].Client1 = c
+	if room.Client2 == nil {
+		room.Client2 = newClient
+		newClient.Room = room
+		newClient.To = room.ToC2
+		newClient.From = room.ToC1
 
-	} else if s.Rooms[roomName].Client2 != nil {
-		s.Rooms[roomName].Client2 = c
-
+		// Notify Client1 that Client2 has connected
+		// TODO: have to be sent to kafka
+		select {
+		case room.ToC1 <- entity.Message{
+			From:    "system",
+			MsgType: "client_connected",
+			Content: []byte(newClient.Username),
+		}:
+		default:
+		}
+		return nil
 	}
 
 	return RoomFullError
-}
-
-func (s *Service) Disconnect(roomName string, c *entity.Client) error {
-
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-	if _, ok := s.Rooms[roomName]; !ok {
-		return RoomNotFoundError
-	}
-
-	// TODO: Handle disconnection logic
 }

@@ -1,19 +1,16 @@
 package server
 
 import (
-	"CryptographyCW/pkg/service"
 	"net/http"
 )
 
 type Server struct {
-	service *service.Service
 	handler http.Handler
 }
 
-func NewServer() *Server {
+func NewServer(h *ChatHandler) *Server {
 	return &Server{
-		service: service.NewService(),
-		handler: NewHandler().InitRoutes(),
+		handler: h.InitRoutes(),
 	}
 }
 

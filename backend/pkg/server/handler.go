@@ -1,6 +1,8 @@
 package server
 
 import (
+	"CryptographyCW/pkg/entity"
+	"CryptographyCW/pkg/service"
 	"github.com/gorilla/websocket"
 	"log/slog"
 	"net/http"
@@ -15,31 +17,75 @@ var upgrader = websocket.Upgrader{
 }
 
 type ChatHandler struct {
+	s *service.Service
 }
 
-func NewHandler() *ChatHandler {
-	return &ChatHandler{}
+func NewHandler(s *service.Service) *ChatHandler {
+	return &ChatHandler{s: s}
 }
 
 func (h *ChatHandler) InitRoutes() http.Handler {
 	router := http.NewServeMux()
-	router.HandleFunc("POST /create_room", h.CreateRoomHandler)
-	router.HandleFunc("/ws/{room_id}", h.JoinRoom)
-	router.HandleFunc("POST /delete_room", h.DeleteRoomHandler)
+	router.HandleFunc("/ws/{room_name}", h.JoinRoom)
+	router.HandleFunc("POST /create_room", withCORS(h.CreateRoomHandler))
+	router.HandleFunc("POST /delete_room", withCORS(h.DeleteRoomHandler))
 
 	return router
+}
+
+func withCORS(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		h(w, r)
+	}
 }
 
 func (h *ChatHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("name")
 	password := r.FormValue("password")
+
+	if name == "" || password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		slog.Warn("Handler.CreateRoomHandler name or password is empty")
+		return
+	}
+
 	// TODO: pass to kafka
+	err := h.s.CreateRoom(name, password)
+	if err != nil {
+		slog.Warn("Handler.DeleteRoomHandler failed to delete",
+			"err", err,
+		)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *ChatHandler) DeleteRoomHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("name")
 	password := r.FormValue("password")
+
+	if name == "" || password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		slog.Warn("Handler.DeleteRoomHandler name or password is empty")
+		return
+	}
+
 	// TODO: pass to kafka
+	err := h.s.DeleteRoom(name, password)
+	if err != nil {
+		slog.Warn("Handler.DeleteRoomHandler failed to delete",
+			"err", err,
+		)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *ChatHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
@@ -51,16 +97,20 @@ func (h *ChatHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer ws.Close()
-
 	name := r.FormValue("room_name")
 	password := r.FormValue("room_password")
-	if name == "" || password == "" {
-		slog.Warn("Handler.WSHandler name or password is empty")
+	username := r.FormValue("username")
+
+	if name == "" || password == "" || username == "" {
+		slog.Warn("Handler.WSHandler name, password or username is empty")
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("name or password is empty"))
 		return
 	}
 
-	// TODO: connect to room
+	if err = h.s.Connect(name, password, entity.NewClient(username, ws)); err != nil {
+		slog.Warn("Handler.WSHandler failed to connect:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }

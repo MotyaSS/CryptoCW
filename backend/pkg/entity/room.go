@@ -17,8 +17,7 @@ const (
 type Room struct {
 	Name             string
 	Password         string
-	Client1, Client2 *Client
 	Algo             encryptionAlgorithm
-	broadcast        chan *Message
-	done             chan struct{}
+	Client1, Client2 *Client
+	ToC1, ToC2       chan Message
 }
