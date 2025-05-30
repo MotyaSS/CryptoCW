@@ -41,7 +41,7 @@ func decrypt(this js.Value, inputs []js.Value) interface{} {
 }
 
 func main() {
-	c := make(chan struct{}, 0)
+	c := make(chan struct{})
 
 	js.Global().Set("rc5Encrypt", js.FuncOf(encrypt))
 	js.Global().Set("rc5Decrypt", js.FuncOf(decrypt))

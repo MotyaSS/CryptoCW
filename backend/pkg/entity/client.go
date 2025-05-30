@@ -72,7 +72,7 @@ func (c *Client) handleWrite() {
 				"time", msg.SentAt)
 
 			if err := c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				slog.Error("SetWriteDeadline failed:", err)
+				slog.Error("SetWriteDeadline failed:", "error", err)
 				return
 			}
 
@@ -82,10 +82,16 @@ func (c *Client) handleWrite() {
 				return
 			}
 
-		case <-time.After(time.Second * 30):
+		case <-time.After(time.Second * 1):
 			// Send ping to check connection health
 			if err := c.ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
-				slog.Warn("Ping failed, closing connection:", err)
+				c.From <- Message{
+					From:    "system",
+					SentAt:  time.Now(),
+					MsgType: "client_disconnected",
+					Content: []byte(c.Username),
+				}
+				slog.Warn("Ping failed, closing connection:", "error", err)
 				return
 			}
 		}
