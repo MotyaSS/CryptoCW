@@ -7,17 +7,17 @@ import (
 var RoomFull = errors.New("room is full")
 var RoomNotFound = errors.New("room not found")
 
-type encryptionAlgorithm string
+type EncryptionAlgorithm string
 
 const (
-	RC5     encryptionAlgorithm = "RC5"
-	TwoFish encryptionAlgorithm = "TwoFish"
+	RC5     EncryptionAlgorithm = "RC5"
+	TwoFish EncryptionAlgorithm = "TwoFish"
 )
 
 type Room struct {
 	Name             string
 	Password         string
-	Algo             encryptionAlgorithm
+	Algo             EncryptionAlgorithm
 	Client1, Client2 *Client
 	ToC1, ToC2       chan Message
 }

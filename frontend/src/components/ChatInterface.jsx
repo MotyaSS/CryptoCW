@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { encryptMessage, decryptMessage, generateIV } from '../encryption';
 
-function ChatInterface({ roomName, username, password, onLeaveRoom }) {
+function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom }) {
     const [messages, setMessages] = useState([]);
     const [messageInput, setMessageInput] = useState('');
     const [socket, setSocket] = useState(null);
@@ -29,27 +30,36 @@ function ChatInterface({ roomName, username, password, onLeaveRoom }) {
             });
         };
 
-        newSocket.onmessage = (event) => {
+        newSocket.onmessage = async (event) => {
             try {
                 console.log('Raw WebSocket message:', event.data);
                 const data = JSON.parse(event.data);
                 console.log('Parsed message data:', data);
-                
-                // Decode base64 content if it exists and looks like base64
-                if (data.content && typeof data.content === 'string' && data.content.match(/^[A-Za-z0-9+/=]+$/)) {
+
+                // Only decrypt text messages
+                if (data.message_type === 'text') {
                     try {
-                        const decoded = atob(data.content);
-                        data.content = decoded;
-                        console.log('Decoded base64 content:', decoded);
-                    } catch (e) {
-                        console.warn('Failed to decode base64 content:', e);
+                        const decrypted = await decryptMessage(
+                            algorithm,
+                            password,
+                            data.content,
+                            data.iv
+                        );
+                        console.log('Decrypted message:', decrypted);
+                        addMessage({
+                            ...data,
+                            content: decrypted
+                        });
+                    } catch (error) {
+                        console.error('Failed to decrypt message:', error);
+                        addMessage({
+                            ...data,
+                            content: '[Encrypted message - decryption failed]'
+                        });
                     }
+                } else {
+                    addMessage(data);
                 }
-                
-                console.log('Message content:', data.content);
-                console.log('Message type:', data.message_type);
-                console.log('Message from:', data.from);
-                addMessage(data);
             } catch (e) {
                 console.error('Error processing message:', e);
                 addMessage({
@@ -88,38 +98,55 @@ function ChatInterface({ roomName, username, password, onLeaveRoom }) {
                 newSocket.close();
             }
         };
-    }, [roomName, username, password]);
+    }, [roomName, username, password, algorithm]);
 
-    const handleSendMessage = (e) => {
+    const handleSendMessage = async (e) => {
         e.preventDefault();
         if (messageInput.trim() && socket && socket.readyState === WebSocket.OPEN) {
-            // Create properly formatted message
-            const messageData = {
-                from: username, // lowercase to match struct tags
-                sent_at: new Date().toISOString(),
-                message_type: "text", // explicitly set type
-                filename: "", // empty string for text messages
-                content: new TextEncoder().encode(messageInput) // proper binary data
-            };
+            try {
+                // Generate random IV
+                const iv = generateIV(algorithm);
 
-            // Convert to JSON-safe format
-            const jsonMessage = {
-                ...messageData,
-                content: Array.from(messageData.content) // convert Uint8Array to regular array
-            };
+                // Encrypt the message
+                const encrypted = await encryptMessage(
+                    algorithm,
+                    password,
+                    messageInput,
+                    iv
+                );
 
-            // Add to local state (using string content for display)
-            addMessage({
-                from: username,
-                sent_at: messageData.sent_at,
-                message_type: "text",
-                content: messageInput,
-                filename: ""
-            });
+                // Convert IV to base64 for transmission
+                const ivBase64 = btoa(String.fromCharCode.apply(null, iv));
 
-            // Send the message
-            socket.send(JSON.stringify(jsonMessage));
-            setMessageInput('');
+                // Create message with encrypted content
+                const messageData = {
+                    from: username,
+                    sent_at: new Date().toISOString(),
+                    message_type: "text",
+                    content: encrypted,
+                    iv: ivBase64
+                };
+
+                // Add to local state (using unencrypted content for display)
+                addMessage({
+                    from: username,
+                    sent_at: messageData.sent_at,
+                    message_type: "text",
+                    content: messageInput
+                });
+
+                // Send encrypted message
+                socket.send(JSON.stringify(messageData));
+                setMessageInput('');
+            } catch (error) {
+                console.error('Failed to send message:', error);
+                addMessage({
+                    from: 'System',
+                    message_type: 'text',
+                    content: `Error sending message: ${error.message}`,
+                    sent_at: new Date().toISOString()
+                });
+            }
         }
     };
 
@@ -131,8 +158,7 @@ function ChatInterface({ roomName, username, password, onLeaveRoom }) {
                     from: username,
                     message_type: "client_disconnected",
                     content: username,
-                    sent_at: new Date().toISOString(),
-                    filename: ""
+                    sent_at: new Date().toISOString()
                 };
                 
                 console.log("Sending disconnect message:", disconnectMessage);
@@ -179,9 +205,12 @@ function ChatInterface({ roomName, username, password, onLeaveRoom }) {
         <div className="chat-interface">
             <div className="chat-header">
                 <h2>Chat Room: {roomName}</h2>
-                <button onClick={handleLeaveRoom} className="leave-button">
-                    Leave Room
-                </button>
+                <div className="room-info">
+                    <span>Algorithm: {algorithm}</span>
+                    <button onClick={handleLeaveRoom} className="leave-button">
+                        Leave Room
+                    </button>
+                </div>
             </div>
 
             <div className="chat-messages">

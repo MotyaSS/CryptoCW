@@ -7,16 +7,19 @@ function App() {
     const [currentRoom, setCurrentRoom] = useState(null);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [algorithm, setAlgorithm] = useState('RC5');
 
-    const handleJoinRoom = (roomName, username, password) => {
+    const handleJoinRoom = (roomName, username, password, algo) => {
         setCurrentRoom(roomName);
         setUsername(username);
         setPassword(password);
+        setAlgorithm(algo || 'RC5'); // Default to RC5 if not specified
     };
 
     const handleLeaveRoom = () => {
         setCurrentRoom(null);
         setPassword('');
+        setAlgorithm('RC5');
     };
 
     return (
@@ -33,6 +36,7 @@ function App() {
                         roomName={currentRoom}
                         username={username}
                         password={password}
+                        algorithm={algorithm}
                         onLeaveRoom={handleLeaveRoom}
                     />
                 </div>

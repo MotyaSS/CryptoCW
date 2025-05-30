@@ -3,9 +3,10 @@ package server
 import (
 	"CryptographyCW/pkg/entity"
 	"CryptographyCW/pkg/service"
-	"github.com/gorilla/websocket"
 	"log/slog"
 	"net/http"
+
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
@@ -49,6 +50,7 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 func (h *ChatHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) {
 	name := r.FormValue("room_name")
 	password := r.FormValue("password")
+	algorithm := r.FormValue("algorithm")
 
 	if name == "" || password == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -57,8 +59,16 @@ func (h *ChatHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Validate algorithm
+	if algorithm != string(entity.RC5) && algorithm != string(entity.TwoFish) {
+		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "invalid encryption algorithm", http.StatusBadRequest)
+		slog.Warn("Handler.CreateRoomHandler invalid algorithm", "algorithm", algorithm)
+		return
+	}
+
 	// TODO: pass to kafka
-	err := h.s.CreateRoom(name, password)
+	err := h.s.CreateRoom(name, password, entity.EncryptionAlgorithm(algorithm))
 	if err != nil {
 		slog.Warn("Handler.DeleteRoomHandler failed to delete",
 			"err", err,

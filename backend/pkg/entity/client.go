@@ -1,9 +1,12 @@
 package entity
 
 import (
-	"github.com/gorilla/websocket"
+	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 type Client struct {
@@ -63,12 +66,18 @@ func (c *Client) handleWrite() {
 				msg.MsgType = "text"
 			}
 
-			// Create a sanitized message for sending
+			// For text messages, ensure content is base64 encoded
+			if msg.MsgType == "text" {
+				if content, ok := msg.Content.([]byte); ok {
+					msg.Content = base64.StdEncoding.EncodeToString(content)
+				}
+			}
 
 			slog.Info("Writing message",
 				"from", msg.From,
 				"type", msg.MsgType,
-				"content", msg.Content,
+				"content_type", fmt.Sprintf("%T", msg.Content),
+				"iv_present", msg.IV != nil,
 				"time", msg.SentAt)
 
 			if err := c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
@@ -89,7 +98,7 @@ func (c *Client) handleWrite() {
 					From:    "system",
 					SentAt:  time.Now(),
 					MsgType: "client_disconnected",
-					Content: []byte(c.Username),
+					Content: c.Username,
 				}
 				slog.Warn("Ping failed, closing connection:", "error", err)
 				return
@@ -114,11 +123,23 @@ func (c *Client) handleRead() {
 			return
 		}
 
+		// For text messages, ensure content is []byte
+		if msg.MsgType == "text" {
+			if content, ok := msg.Content.(string); ok {
+				decoded, err := base64.StdEncoding.DecodeString(content)
+				if err != nil {
+					slog.Error("Failed to decode base64 content:", err)
+					continue
+				}
+				msg.Content = decoded
+			}
+		}
+
 		slog.Info("Received message",
 			"from", msg.From,
 			"type", msg.MsgType,
-			"content_length", len(msg.Content),
-			"content", string(msg.Content),
+			"content_type", fmt.Sprintf("%T", msg.Content),
+			"iv_present", msg.IV != nil,
 			"time", msg.SentAt)
 
 		// Set default values if empty
@@ -130,6 +151,11 @@ func (c *Client) handleRead() {
 		}
 		if msg.MsgType == "" {
 			msg.MsgType = "text"
+		}
+
+		// For system messages, don't expect IV
+		if msg.MsgType != "text" && msg.MsgType != "file_start" {
+			msg.IV = nil
 		}
 
 		// Send to the client's channel

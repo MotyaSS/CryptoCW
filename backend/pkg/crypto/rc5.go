@@ -103,6 +103,85 @@ func (c *RC5) Decrypt(block []byte) []byte {
 	return out
 }
 
+// EncryptCBC encrypts data using CBC mode
+func (c *RC5) EncryptCBC(data []byte, iv []byte) []byte {
+	if len(iv) != 8 {
+		panic("rc5: IV must be 8 bytes")
+	}
+
+	// Pad data to block size if necessary
+	padLen := 8 - (len(data) % 8)
+	paddedData := make([]byte, len(data)+padLen)
+	copy(paddedData, data)
+	// PKCS7 padding
+	for i := len(data); i < len(paddedData); i++ {
+		paddedData[i] = byte(padLen)
+	}
+
+	// Initialize previous block with IV
+	prev := make([]byte, 8)
+	copy(prev, iv)
+
+	// Process each block
+	ciphertext := make([]byte, len(paddedData))
+	for i := 0; i < len(paddedData); i += 8 {
+		// XOR with previous ciphertext block (or IV for first block)
+		block := make([]byte, 8)
+		for j := 0; j < 8; j++ {
+			block[j] = paddedData[i+j] ^ prev[j]
+		}
+
+		// Encrypt block
+		encrypted := c.Encrypt(block)
+
+		// Copy to output and save for next iteration
+		copy(ciphertext[i:], encrypted)
+		copy(prev, encrypted)
+	}
+
+	return ciphertext
+}
+
+// DecryptCBC decrypts data using CBC mode
+func (c *RC5) DecryptCBC(ciphertext []byte, iv []byte) []byte {
+	if len(iv) != 8 {
+		panic("rc5: IV must be 8 bytes")
+	}
+	if len(ciphertext)%8 != 0 {
+		panic("rc5: ciphertext is not a multiple of block size")
+	}
+
+	// Initialize previous block with IV
+	prev := make([]byte, 8)
+	copy(prev, iv)
+
+	// Process each block
+	plaintext := make([]byte, len(ciphertext))
+	for i := 0; i < len(ciphertext); i += 8 {
+		// Save current ciphertext block for next iteration
+		current := make([]byte, 8)
+		copy(current, ciphertext[i:i+8])
+
+		// Decrypt block
+		decrypted := c.Decrypt(current)
+
+		// XOR with previous ciphertext block (or IV for first block)
+		for j := 0; j < 8; j++ {
+			plaintext[i+j] = decrypted[j] ^ prev[j]
+		}
+
+		// Update previous block
+		copy(prev, current)
+	}
+
+	// Remove PKCS7 padding
+	padLen := int(plaintext[len(plaintext)-1])
+	if padLen > 8 || padLen < 1 {
+		panic("rc5: invalid padding")
+	}
+	return plaintext[:len(plaintext)-padLen]
+}
+
 // Helper functions
 
 func rotateLeft(x, y uint32) uint32 {

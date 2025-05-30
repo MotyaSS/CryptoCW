@@ -4,6 +4,7 @@ import (
 	"CryptographyCW/pkg/entity"
 	"errors"
 	"sync"
+	"time"
 )
 
 type Service struct {
@@ -22,8 +23,7 @@ var RoomNotFoundError = errors.New("room not found")
 var RoomFullError = errors.New("room is full")
 var RoomPasswordError = errors.New("room password is incorrect")
 
-func (s *Service) CreateRoom(name string, password string) error {
-
+func (s *Service) CreateRoom(name string, password string, algo entity.EncryptionAlgorithm) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -34,7 +34,8 @@ func (s *Service) CreateRoom(name string, password string) error {
 	s.Rooms[name] = &entity.Room{
 		Name:     name,
 		Password: password,
-		ToC1:     make(chan entity.Message, 10), // initialize channels
+		Algo:     algo,
+		ToC1:     make(chan entity.Message, 10),
 		ToC2:     make(chan entity.Message, 10),
 	}
 
@@ -82,12 +83,13 @@ func (s *Service) Connect(roomName, roomPassword string, newClient *entity.Clien
 		newClient.From = room.ToC1
 
 		// Notify Client1 that Client2 has connected
-		// TODO: have to be sent to kafka
+		// System messages don't need IV
 		select {
 		case room.ToC1 <- entity.Message{
 			From:    "system",
 			MsgType: "client_connected",
-			Content: []byte(newClient.Username),
+			Content: newClient.Username, // Send username directly as string
+			SentAt:  time.Now(),
 		}:
 		default:
 		}

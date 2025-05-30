@@ -5,7 +5,8 @@ function RoomManagement({ onJoinRoom }) {
     const [formData, setFormData] = useState({
         roomName: '',
         password: '',
-        username: ''
+        username: '',
+        algorithm: 'RC5' // Default to RC5
     });
     const [message, setMessage] = useState('');
 
@@ -22,7 +23,7 @@ function RoomManagement({ onJoinRoom }) {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: `room_name=${encodeURIComponent(formData.roomName)}&password=${encodeURIComponent(formData.password)}`
+                body: `room_name=${encodeURIComponent(formData.roomName)}&password=${encodeURIComponent(formData.password)}&algorithm=${encodeURIComponent(formData.algorithm)}`
             });
 
             if (!response.ok) {
@@ -30,7 +31,7 @@ function RoomManagement({ onJoinRoom }) {
             }
 
             setMessage('Room created successfully!');
-            setFormData({ roomName: '', password: '', username: '' });
+            setFormData({ roomName: '', password: '', username: '', algorithm: 'RC5' });
         } catch (error) {
             setMessage(`Error: ${error.message}`);
         }
@@ -61,7 +62,7 @@ function RoomManagement({ onJoinRoom }) {
     const handleJoin = (e) => {
         e.preventDefault();
         if (formData.roomName && formData.password && formData.username) {
-            onJoinRoom(formData.roomName, formData.username, formData.password);
+            onJoinRoom(formData.roomName, formData.username, formData.password, formData.algorithm);
         } else {
             setMessage('Please fill all fields');
         }
@@ -142,6 +143,15 @@ function RoomManagement({ onJoinRoom }) {
                         placeholder="Room Password"
                         required
                     />
+                    <select
+                        name="algorithm"
+                        value={formData.algorithm}
+                        onChange={handleChange}
+                        required
+                    >
+                        <option value="RC5">RC5</option>
+                        <option value="TwoFish">TwoFish</option>
+                    </select>
                     <button type="submit">Create Room</button>
                 </form>
             )}
