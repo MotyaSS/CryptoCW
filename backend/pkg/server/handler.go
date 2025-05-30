@@ -27,7 +27,7 @@ func NewHandler(s *service.Service) *ChatHandler {
 func (h *ChatHandler) InitRoutes() http.Handler {
 	router := http.NewServeMux()
 	router.HandleFunc("/ws/{room_name}", h.JoinRoom)
-	router.HandleFunc("POST /create_room", withCORS(h.CreateRoomHandler))
+	router.HandleFunc("POST /add_room", withCORS(h.CreateRoomHandler))
 	router.HandleFunc("POST /delete_room", withCORS(h.DeleteRoomHandler))
 
 	return router
@@ -35,7 +35,7 @@ func (h *ChatHandler) InitRoutes() http.Handler {
 
 func withCORS(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", "*") // caution: for dev purpose only!!!
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
@@ -47,11 +47,12 @@ func withCORS(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func (h *ChatHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("name")
+	name := r.FormValue("room_name")
 	password := r.FormValue("password")
 
 	if name == "" || password == "" {
 		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "name or password is empty", http.StatusBadRequest)
 		slog.Warn("Handler.CreateRoomHandler name or password is empty")
 		return
 	}
@@ -63,6 +64,7 @@ func (h *ChatHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) 
 			"err", err,
 		)
 		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
 		return
 	}
 }
@@ -109,7 +111,7 @@ func (h *ChatHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err = h.s.Connect(name, password, entity.NewClient(username, ws)); err != nil {
-		slog.Warn("Handler.WSHandler failed to connect:", err)
+		slog.Warn("Handler.WSHandler failed to connect:", "error", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}

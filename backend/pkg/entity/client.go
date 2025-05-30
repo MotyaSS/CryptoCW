@@ -49,21 +49,45 @@ func (c *Client) handleWrite() {
 
 	for {
 		select {
-		case msg, ok := <-c.To: // from kafka
+		case msg, ok := <-c.To:
 			if !ok {
 				slog.Info("Channel closed, stopping write handler")
 				return
 			}
-			err := c.ws.WriteJSON(msg)
-			if err != nil {
-				slog.Error("Error writing to client:",
-					"err", err,
-				)
+
+			// Ensure proper message formatting
+			if msg.SentAt.IsZero() {
+				msg.SentAt = time.Now()
+			}
+			if msg.MsgType == "" {
+				msg.MsgType = "text"
+			}
+
+			// Create a sanitized message for sending
+
+			slog.Info("Writing message",
+				"from", msg.From,
+				"type", msg.MsgType,
+				"content", msg.Content,
+				"time", msg.SentAt)
+
+			if err := c.ws.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+				slog.Error("SetWriteDeadline failed:", err)
+				return
+			}
+
+			// Use WriteJSON with our sanitized struct
+			if err := c.ws.WriteJSON(msg); err != nil {
+				slog.Error("Write failed:", err)
 				return
 			}
 
 		case <-time.After(time.Second * 30):
-			slog.Warn("Timed out writing to client")
+			// Send ping to check connection health
+			if err := c.ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+				slog.Warn("Ping failed, closing connection:", err)
+				return
+			}
 		}
 	}
 }
@@ -72,17 +96,42 @@ func (c *Client) handleRead() {
 	defer func() {
 		c.ws.Close()
 	}()
+
 	for {
-		msg := Message{}
+		var msg Message
 		err := c.ws.ReadJSON(&msg)
+
 		if err != nil {
-			slog.Error("Error reading from client:", err)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				slog.Error("WebSocket read error:", err)
+			}
 			return
 		}
-		// Try to send to c.From, but check if closed
+
+		slog.Info("Received message",
+			"from", msg.From,
+			"type", msg.MsgType,
+			"content_length", len(msg.Content),
+			"content", string(msg.Content),
+			"time", msg.SentAt)
+
+		// Set default values if empty
+		if msg.From == "" {
+			msg.From = c.Username
+		}
+		if msg.SentAt.IsZero() {
+			msg.SentAt = time.Now()
+		}
+		if msg.MsgType == "" {
+			msg.MsgType = "text"
+		}
+
+		// Send to the client's channel
 		select {
 		case c.From <- msg:
-			// sent successfully
+			// Message sent successfully
+		default:
+			slog.Warn("Client message channel blocked, dropping message")
 		}
 	}
 }

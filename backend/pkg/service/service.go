@@ -71,6 +71,7 @@ func (s *Service) Connect(roomName, roomPassword string, newClient *entity.Clien
 		newClient.Room = room
 		newClient.To = room.ToC1
 		newClient.From = room.ToC2
+		newClient.StartServing()
 		return nil
 	}
 
@@ -90,6 +91,7 @@ func (s *Service) Connect(roomName, roomPassword string, newClient *entity.Clien
 		}:
 		default:
 		}
+		newClient.StartServing()
 		return nil
 	}
 

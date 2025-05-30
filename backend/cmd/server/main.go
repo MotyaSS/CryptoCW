@@ -9,8 +9,11 @@ import (
 
 func main() {
 	slog.SetDefault(
-		slog.New(slog.NewJSONHandler(
-			os.Stdout, nil),
+		slog.New(slog.NewTextHandler(
+			os.Stdout, &slog.HandlerOptions{
+				AddSource:   true,
+				ReplaceAttr: nil,
+			}),
 		),
 	)
 	s := server.NewServer(server.NewHandler(service.NewService()))

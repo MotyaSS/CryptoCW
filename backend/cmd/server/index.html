@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Chat</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .section {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        input, button {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #chat-messages {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+        }
+        .message .sender {
+            font-weight: bold;
+            color: #333;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Crypto Chat Application</h1>
+
+    <!-- Room Management Section -->
+    <div class="section" id="room-management">
+        <h2>Room Management</h2>
+        <form id="create-room-form">
+            <h3>Create Room</h3>
+            <input type="text" id="create-room-name" placeholder="Room Name" required>
+            <input type="password" id="create-room-password" placeholder="Room Password" required>
+            <button type="submit">Create Room</button>
+        </form>
+
+        <form id="delete-room-form">
+            <h3>Delete Room</h3>
+            <input type="text" id="delete-room-name" placeholder="Room Name" required>
+            <input type="password" id="delete-room-password" placeholder="Room Password" required>
+            <button type="submit">Delete Room</button>
+        </form>
+    </div>
+
+    <!-- Join Chat Section -->
+    <div class="section" id="join-chat">
+        <h2>Join Chat Room</h2>
+        <form id="join-room-form">
+            <input type="text" id="join-room-name" placeholder="Room Name" required>
+            <input type="password" id="join-room-password" placeholder="Room Password" required>
+            <input type="text" id="username" placeholder="Your Username" required>
+            <button type="submit">Join Room</button>
+        </form>
+    </div>
+
+    <!-- Chat Interface (hidden by default) -->
+    <div class="section hidden" id="chat-interface">
+        <h2 id="current-room">Chat Room: <span id="room-name-display"></span></h2>
+        <div id="chat-messages"></div>
+        <form id="message-form">
+            <input type="text" id="message-input" placeholder="Type your message..." required>
+            <button type="submit">Send</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    let socket = null;
+    const currentUser = {
+        roomName: '',
+        username: ''
+    };
+
+    // DOM elements
+    const joinRoomForm = document.getElementById('join-room-form');
+    const messageForm = document.getElementById('message-form');
+    const createRoomForm = document.getElementById('create-room-form');
+    const deleteRoomForm = document.getElementById('delete-room-form');
+    const chatMessages = document.getElementById('chat-messages');
+    const chatInterface = document.getElementById('chat-interface');
+    const roomNameDisplay = document.getElementById('room-name-display');
+
+    // Event listeners
+    joinRoomForm.addEventListener('submit', joinRoom);
+    messageForm.addEventListener('submit', sendMessage);
+    createRoomForm.addEventListener('submit', createRoom);
+    deleteRoomForm.addEventListener('submit', deleteRoom);
+
+    // Functions
+    function joinRoom(e) {
+        e.preventDefault();
+
+        const roomName = document.getElementById('join-room-name').value;
+        const password = document.getElementById('join-room-password').value;
+        const username = document.getElementById('username').value;
+
+        currentUser.roomName = roomName;
+        currentUser.username = username;
+
+        // Connect to WebSocket
+        const wsUrl = `ws://${window.location.host}/ws/${roomName}?room_name=${roomName}&room_password=${password}&username=${username}`;
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+            addMessage('System', 'Connected to room: ' + roomName);
+            roomNameDisplay.textContent = roomName;
+            chatInterface.classList.remove('hidden');
+        };
+
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                addMessage(data.sender, data.message);
+            } catch (e) {
+                addMessage('System', event.data);
+            }
+        };
+
+        socket.onclose = () => {
+            addMessage('System', 'Disconnected from room');
+        };
+
+        socket.onerror = (error) => {
+            addMessage('System', 'Error: ' + error.message);
+        };
+    }
+
+    function sendMessage(e) {
+        e.preventDefault();
+        const messageInput = document.getElementById('message-input');
+        const message = messageInput.value;
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            const messageData = {
+                sender: currentUser.username,
+                message: message,
+                room: currentUser.roomName
+            };
+            socket.send(JSON.stringify(messageData));
+            addMessage(currentUser.username, message);
+            messageInput.value = '';
+        } else {
+            addMessage('System', 'Not connected to a room');
+        }
+    }
+
+    function addMessage(sender, message) {
+        const messageElement = document.createElement('div');
+        messageElement.className = 'message';
+        messageElement.innerHTML = `<span class="sender">${sender}:</span> ${message}`;
+        chatMessages.appendChild(messageElement);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function createRoom(e) {
+        e.preventDefault();
+
+        const roomName = document.getElementById('create-room-name').value;
+        const password = document.getElementById('create-room-password').value;
+
+        fetch('/add_room', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `room_name=${encodeURIComponent(roomName)}&password=${encodeURIComponent(password)}`
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => { throw new Error(text) });
+                }
+                alert('Room created successfully!');
+                document.getElementById('create-room-form').reset();
+            })
+            .catch(error => {
+                alert('Error creating room: ' + error.message);
+            });
+    }
+
+    function deleteRoom(e) {
+        e.preventDefault();
+
+        const roomName = document.getElementById('delete-room-name').value;
+        const password = document.getElementById('delete-room-password').value;
+
+        fetch('/delete_room', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `name=${encodeURIComponent(roomName)}&password=${encodeURIComponent(password)}`
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => { throw new Error(text) });
+                }
+                alert('Room deleted successfully!');
+                document.getElementById('delete-room-form').reset();
+            })
+            .catch(error => {
+                alert('Error deleting room: ' + error.message);
+            });
+    }
+</script>
+</body>
+</html>
