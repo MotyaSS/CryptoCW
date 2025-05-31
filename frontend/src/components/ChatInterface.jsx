@@ -12,7 +12,16 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
 
     // File reception state
     const [fileReceptions, setFileReceptions] = useState(new Map());
+    const fileReceptionsRef = useRef(new Map());
     const [downloadQueue, setDownloadQueue] = useState([]);
+
+    // --- File Upload State ---
+    const [uploadProgress, setUploadProgress] = useState(0); // 0-100
+    const [uploadingFileName, setUploadingFileName] = useState(null);
+
+    // --- File Download State ---
+    const [downloadProgress, setDownloadProgress] = useState({}); // { filename: percent }
+    const [readyToSave, setReadyToSave] = useState({}); // { filename: Uint8Array }
 
     // Function to add message to chat
     const addMessage = (message) => {
@@ -108,70 +117,62 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                             });
                         }
                         break;
-                    
-                    case 'file_start':
-                        // Initialize file reception
-                        setFileReceptions(prev => {
-                            const newReceptions = new Map(prev);
-                            newReceptions.set(data.filename, {
-                                sender: data.from,
-                                size: parseInt(data.content),
-                                chunks: [],
-                                receivedSize: 0,
-                                startTime: Date.now()
-                            });
-                            return newReceptions;
+                    case 'file_start': {
+                        const msgId = `${data.sent_at}_${data.filename}`;
+                        fileReceptionsRef.current.set(data.filename, {
+                            sender: data.from,
+                            size: parseInt(data.content),
+                            chunks: [],
+                            receivedSize: 0,
+                            startTime: Date.now(),
+                            msgId
                         });
-                        addMessage({
-                            ...data,
-                            content: `${data.from} started uploading: ${data.filename} (${data.content} bytes)`
-                        });
+                        setFileReceptions(new Map(fileReceptionsRef.current));
+                        setDownloadProgress(prev => ({ ...prev, [data.filename]: 0 }));
+                        // Add a file_transfer message to chat
+                        setMessages(prev => [
+                            ...prev,
+                            {
+                                id: msgId,
+                                from: data.from,
+                                sent_at: data.sent_at,
+                                message_type: 'file_transfer',
+                                filename: data.filename,
+                                progress: 0,
+                                ready: false
+                            }
+                        ]);
                         break;
-                    
-                    case 'file_chunk':
+                    }
+                    case 'file_chunk': {
                         try {
                             if (!data.iv) {
                                 throw new Error('Missing IV for file chunk');
                             }
-
-                            // Decrypt chunk
                             const decryptedBase64 = await decryptMessage(
                                 algorithm,
                                 password,
                                 data.content,
-                                data.iv // This should be base64 encoded IV
+                                data.iv
                             );
-
-                            // Convert base64 to binary
                             const binaryStr = atob(decryptedBase64);
                             const chunkBytes = new Uint8Array(binaryStr.length);
                             for (let i = 0; i < binaryStr.length; i++) {
                                 chunkBytes[i] = binaryStr.charCodeAt(i);
                             }
-
-                            // Update file reception state
-                            setFileReceptions(prev => {
-                                const newReceptions = new Map(prev);
-                                const fileReception = newReceptions.get(data.filename);
-                                if (fileReception) {
-                                    fileReception.chunks.push(chunkBytes);
-                                    fileReception.receivedSize += chunkBytes.length;
-                                    
-                                    // Calculate progress and speed
-                                    const progress = Math.round((fileReception.receivedSize / fileReception.size) * 100);
-                                    const elapsedSeconds = (Date.now() - fileReception.startTime) / 1000;
-                                    const speedMBps = ((fileReception.receivedSize / (1024 * 1024)) / elapsedSeconds).toFixed(2);
-                                    
-                                    // Update progress message
-                                    addMessage({
-                                        from: 'System',
-                                        message_type: 'text',
-                                        content: `Receiving ${data.filename} from ${fileReception.sender}: ${progress}% (${speedMBps} MB/s)`,
-                                        sent_at: new Date().toISOString()
-                                    });
-                                }
-                                return newReceptions;
-                            });
+                            // Always use the ref for up-to-date state
+                            const fileReception = fileReceptionsRef.current.get(data.filename);
+                            if (fileReception) {
+                                fileReception.chunks.push(chunkBytes);
+                                fileReception.receivedSize += chunkBytes.length;
+                                // Update progress for UI
+                                const percent = Math.round((fileReception.receivedSize / fileReception.size) * 100);
+                                setDownloadProgress(p => ({ ...p, [data.filename]: percent }));
+                                // Trigger UI update
+                                setFileReceptions(new Map(fileReceptionsRef.current));
+                                // Update message progress
+                                setMessages(prev => updateMessageById(prev, fileReception.msgId, { progress: percent }));
+                            }
                         } catch (error) {
                             console.error('Failed to decrypt file chunk:', error);
                             addMessage({
@@ -182,18 +183,15 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                             });
                         }
                         break;
-                    
-                    case 'file_end':
+                    }
+                    case 'file_end': {
                         try {
-                            // Get file reception data
-                            const fileReception = fileReceptions.get(data.filename);
+                            // Always use the ref for up-to-date state
+                            const fileReception = fileReceptionsRef.current.get(data.filename);
                             if (fileReception) {
-                                // Verify received size matches expected size
                                 if (fileReception.receivedSize !== fileReception.size) {
                                     throw new Error(`Size mismatch: received ${fileReception.receivedSize} bytes, expected ${fileReception.size} bytes`);
                                 }
-
-                                // Combine all chunks
                                 const totalLength = fileReception.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
                                 const fileData = new Uint8Array(totalLength);
                                 let offset = 0;
@@ -201,27 +199,14 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                                     fileData.set(chunk, offset);
                                     offset += chunk.length;
                                 }
-
-                                // Queue file for download
-                                setDownloadQueue(prev => [...prev, [fileData, data.filename]]);
-
-                                // Calculate total transfer stats
-                                const totalSeconds = (Date.now() - fileReception.startTime) / 1000;
-                                const avgSpeedMBps = ((fileReception.size / (1024 * 1024)) / totalSeconds).toFixed(2);
-
-                                // Cleanup reception state
-                                setFileReceptions(prev => {
-                                    const newReceptions = new Map(prev);
-                                    newReceptions.delete(data.filename);
-                                    return newReceptions;
-                                });
-
-                                addMessage({
-                                    from: 'System',
-                                    message_type: 'text',
-                                    content: `${data.from} finished uploading ${data.filename}. Average speed: ${avgSpeedMBps} MB/s. Starting download...`,
-                                    sent_at: new Date().toISOString()
-                                });
+                                setReadyToSave(prev => ({ ...prev, [data.filename]: fileData }));
+                                setDownloadProgress(prev => ({ ...prev, [data.filename]: 100 }));
+                                // Remove from ref and state
+                                fileReceptionsRef.current.delete(data.filename);
+                                setFileReceptions(new Map(fileReceptionsRef.current));
+                                // Update message progress
+                                setMessages(prev => updateMessageById(prev, fileReception.msgId, { progress: 100, ready: true }));
+                                console.log(`${data.from} finished uploading ${data.filename}. File ready to save.`);
                             }
                         } catch (error) {
                             console.error('Failed to process file end:', error);
@@ -231,16 +216,12 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                                 content: `Error completing file transfer: ${error.message}`,
                                 sent_at: new Date().toISOString()
                             });
-                            
-                            // Cleanup failed transfer
-                            setFileReceptions(prev => {
-                                const newReceptions = new Map(prev);
-                                newReceptions.delete(data.filename);
-                                return newReceptions;
-                            });
+                            // Remove from ref and state
+                            fileReceptionsRef.current.delete(data.filename);
+                            setFileReceptions(new Map(fileReceptionsRef.current));
                         }
                         break;
-                    
+                    }
                     default:
                         addMessage(data);
                 }
@@ -263,6 +244,7 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                 sent_at: new Date().toISOString()
             });
             socketInitialized.current = false;
+            onLeaveRoom();
         };
 
         newSocket.onerror = (error) => {
@@ -319,6 +301,9 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                     content: messageInput
                 });
 
+                // Log the outgoing message
+                console.log('[WebSocket] Sending message:', messageData);
+
                 // Send encrypted message
                 socket.send(JSON.stringify(messageData));
                 setMessageInput('');
@@ -344,34 +329,18 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                     content: username,
                     sent_at: new Date().toISOString()
                 };
-                
                 console.log("Sending disconnect message:", disconnectMessage);
-                
-                // Create a promise to wait for the message to be sent
-                await new Promise((resolve, reject) => {
-                    socket.send(JSON.stringify(disconnectMessage), (error) => {
-                        if (error) {
-                            console.error("Error sending disconnect message:", error);
-                            reject(error);
-                        } else {
-                            console.log("Disconnect message sent successfully");
-                            resolve();
-                        }
-                    });
-                });
-
-                // Add a small delay to ensure message processing
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-                console.log("Closing socket connection...");
-                socket.close(1000, "User left the room");
-                socketInitialized.current = false;
-                onLeaveRoom();
+                socket.send(JSON.stringify(disconnectMessage));
+                // Give a short delay to allow the message to be sent
+                setTimeout(() => {
+                    console.log("Closing socket connection...");
+                    socket.close(1000, "User left the room");
+                    socketInitialized.current = false;
+                }, 100);
             } catch (error) {
                 console.error("Error during room leave:", error);
                 socket.close();
                 socketInitialized.current = false;
-                onLeaveRoom();
             }
         } else {
             console.log("Socket already closed or not connected");
@@ -380,52 +349,79 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
         }
     };
 
-    const handleFileUpload = async (event) => {
+    // Scroll to bottom when messages change
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
+
+    // Utility: Safe Uint8Array to base64 for large arrays
+    function uint8ToBase64(uint8) {
+        let binary = '';
+        const chunkSize = 0x8000; // 32KB
+        for (let i = 0; i < uint8.length; i += chunkSize) {
+            binary += String.fromCharCode.apply(null, uint8.subarray(i, i + chunkSize));
+        }
+        return btoa(binary);
+    }
+
+    // --- New File Upload Handler ---
+    const handleFileSelect = async (event) => {
         const file = event.target.files[0];
         if (!file || !socket || socket.readyState !== WebSocket.OPEN) return;
-
+        setUploadingFileName(file.name);
+        setUploadProgress(0);
+        setIsUploading(true);
         try {
-            setIsUploading(true);
+            const uploadMsgId = `${Date.now()}_${file.name}`;
+            setMessages(prev => [
+                ...prev,
+                {
+                    id: uploadMsgId,
+                    from: username,
+                    sent_at: new Date().toISOString(),
+                    message_type: 'file_transfer',
+                    filename: file.name,
+                    progress: 0,
+                    ready: false,
+                    isUpload: true,
+                    fileData: null // will be set for preview if image
+                }
+            ]);
             const reader = new FileReader();
-            
-            // Send file start message
-            const startMessage = {
-                from: username,
-                sent_at: new Date().toISOString(),
-                message_type: "file_start",
-                filename: file.name,
-                content: file.size.toString()
-            };
-            socket.send(JSON.stringify(startMessage));
-
-            // Add local message showing file upload started
-            addMessage({
-                from: username,
-                sent_at: new Date().toISOString(),
-                message_type: "text",
-                content: `Uploading file: ${file.name}`
-            });
-
             reader.onload = async (e) => {
                 const fileData = new Uint8Array(e.target.result);
+                // If image, store for preview
+                const isImage = isImageFile(file.name);
+                if (isImage) {
+                    setMessages(prev => prev.map(msg =>
+                        msg.id === uploadMsgId ? { ...msg, fileData } : msg
+                    ));
+                }
+                // Send file_start
+                const startMessage = {
+                    from: username,
+                    sent_at: new Date().toISOString(),
+                    message_type: "file_start",
+                    filename: file.name,
+                    content: file.size.toString()
+                };
+                console.log('[WebSocket] Sending file_start:', startMessage);
+                socket.send(JSON.stringify(startMessage));
+                console.log(`Uploading file: ${file.name}`);
                 for (let i = 0; i < fileData.length; i += CHUNK_SIZE) {
                     const chunk = fileData.slice(i, i + CHUNK_SIZE);
-                    
-                    // Convert chunk to base64 string
-                    const chunkBase64 = btoa(String.fromCharCode.apply(null, chunk));
-                    
+                    // Use safe base64 encoding
+                    const chunkBase64 = uint8ToBase64(chunk);
                     // Generate IV for this chunk
                     const iv = generateIV(algorithm);
                     const ivBase64 = btoa(String.fromCharCode.apply(null, iv));
-                    
                     // Encrypt chunk
                     const encryptedChunk = await encryptMessage(
                         algorithm,
                         password,
-                        chunkBase64, // Send base64 string
+                        chunkBase64,
                         iv
                     );
-
                     const chunkMessage = {
                         from: username,
                         sent_at: new Date().toISOString(),
@@ -434,14 +430,21 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                         content: encryptedChunk,
                         iv: ivBase64
                     };
-                    
+                    console.log('[WebSocket] Sending file_chunk:', {
+                        ...chunkMessage,
+                        content: '[ENCRYPTED]',
+                        chunkIndex: Math.floor(i / CHUNK_SIZE),
+                        chunkSize: chunk.length
+                    });
                     socket.send(JSON.stringify(chunkMessage));
-                    
-                    // Wait a bit to prevent overwhelming the connection
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    setUploadProgress(Math.round(((i + chunk.length) / fileData.length) * 100));
+                    // Update message progress
+                    setMessages(prev => prev.map(msg =>
+                        msg.id === uploadMsgId ? { ...msg, progress: Math.round(((i + chunk.length) / fileData.length) * 100) } : msg
+                    ));
+                    await new Promise(resolve => setTimeout(resolve, 50));
                 }
-
-                // Send file end message
+                // Send file_end
                 const endMessage = {
                     from: username,
                     sent_at: new Date().toISOString(),
@@ -449,19 +452,19 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                     filename: file.name,
                     content: file.name
                 };
+                console.log('[WebSocket] Sending file_end:', endMessage);
                 socket.send(JSON.stringify(endMessage));
-
-                // Add local message showing file upload completed
-                addMessage({
-                    from: username,
-                    sent_at: new Date().toISOString(),
-                    message_type: "text",
-                    content: `File uploaded: ${file.name}`
-                });
-
-                setIsUploading(false);
+                console.log(`File uploaded: ${file.name}`);
+                setUploadProgress(100);
+                setTimeout(() => {
+                    setIsUploading(false);
+                    setUploadingFileName(null);
+                    setUploadProgress(0);
+                }, 1000);
+                setMessages(prev => prev.map(msg =>
+                    msg.id === uploadMsgId ? { ...msg, progress: 100, ready: true } : msg
+                ));
             };
-
             reader.readAsArrayBuffer(file);
         } catch (error) {
             console.error('Failed to upload file:', error);
@@ -472,14 +475,38 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                 sent_at: new Date().toISOString()
             });
             setIsUploading(false);
+            setUploadingFileName(null);
+            setUploadProgress(0);
         }
     };
 
-    // Scroll to bottom when messages change
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-    
+    // --- Save As handler ---
+    const handleSaveAs = (filename) => {
+        const fileData = readyToSave[filename];
+        if (!fileData) return;
+        const blob = new Blob([fileData], { type: 'application/octet-stream' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }, 100);
+    };
+
+    // Helper to check if a filename is an image
+    function isImageFile(filename) {
+        return /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(filename);
+    }
+
+    // Helper to update a message by id
+    function updateMessageById(messages, id, update) {
+        return messages.map(msg => (msg.id === id ? { ...msg, ...update } : msg));
+    }
+
     return (
         <div className="chat-interface">
             <div className="chat-header">
@@ -493,26 +520,90 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
             </div>
 
             <div className="chat-messages">
-                {messages.map((msg, index) => (
-                    <div
-                        key={index}
-                        className={`message ${msg.from === username ? 'own-message' : ''}`}
-                    >
-                        <div className="message-header">
-                            <span className="sender">{msg.from}</span>
-                            <span className="timestamp">
-                                {new Date(msg.sent_at).toLocaleTimeString()}
-                            </span>
+                {messages.map((msg, index) => {
+                    const isOwn = msg.from === username;
+                    const isSystem = msg.message_type === 'client_connected' || msg.message_type === 'client_disconnected' || msg.from === 'System';
+                    if (isSystem) {
+                        return (
+                            <div
+                                key={msg.id || index}
+                                className="message-card system-message"
+                                style={{
+                                    background: '#f0f0f0',
+                                    color: '#888',
+                                    borderRadius: 2,
+                                    margin: '8px auto',
+                                    padding: '8px 16px',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
+                                    maxWidth: 340,
+                                    alignSelf: 'center',
+                                    textAlign: 'center',
+                                    fontStyle: 'italic',
+                                }}
+                            >
+                                <div className="message-content" style={{ marginBottom: 4 }}>
+                                    {msg.content}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#bbb', marginTop: 2 }}>
+                                    {msg.sent_at ? new Date(msg.sent_at).toLocaleString() : ''}
+                                </div>
+                            </div>
+                        );
+                    }
+                    return (
+                        <div
+                            key={msg.id || index}
+                            className={`message-card${isOwn ? ' own-message' : ''}`}
+                            style={{
+                                background: isOwn ? '#e6f7ff' : '#f5f5f5',
+                                borderRadius: 8,
+                                margin: '12px 0',
+                                padding: 16,
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                                maxWidth: 420,
+                                alignSelf: isOwn ? 'flex-end' : 'flex-start',
+                                position: 'relative',
+                                display: 'flex',
+                                flexDirection: 'column',
+                            }}
+                        >
+                            {/* Sender name */}
+                            <div style={{ fontWeight: 600, marginBottom: 8, color: '#1890ff' }}>{msg.from}</div>
+                            {/* Message content */}
+                            <div className="message-content" style={{ marginBottom: 8 }}>
+                                {msg.message_type === 'text' ? (
+                                    <span>{msg.content}</span>
+                                ) : msg.message_type === 'file_transfer' ? (
+                                    <div>
+                                        <strong>File: {msg.filename}</strong>
+                                        {isImageFile(msg.filename) && ((msg.isUpload && msg.fileData) || (!msg.isUpload && msg.ready && readyToSave[msg.filename])) ? (
+                                            <div style={{ margin: '8px 0' }}>
+                                                <img
+                                                    src={msg.isUpload ? URL.createObjectURL(new Blob([msg.fileData], { type: 'image/*' })) : URL.createObjectURL(new Blob([readyToSave[msg.filename]], { type: 'image/*' }))}
+                                                    alt={msg.filename}
+                                                />
+                                            </div>
+                                        ) : null}
+                                        <div className="progress-row">
+                                            <progress value={msg.progress} max="100" style={{ flex: 1 }} />
+                                            <span style={{ fontWeight: 500 }}>{msg.progress}%</span>
+                                            {!msg.isUpload && msg.ready && readyToSave[msg.filename] && (
+                                                <button style={{ marginLeft: 10 }} onClick={() => handleSaveAs(msg.filename)}>
+                                                    Save As
+                                                </button>
+                                            )}
+                                            {msg.isUpload && msg.ready && <span style={{ marginLeft: 10, color: '#4CAF50' }}>File uploaded</span>}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                            {/* Date and time */}
+                            <div style={{ fontSize: 12, color: '#888', alignSelf: 'flex-end', marginTop: 4 }}>
+                                {msg.sent_at ? new Date(msg.sent_at).toLocaleString() : ''}
+                            </div>
                         </div>
-                        <div className="message-content">
-                            {msg.message_type === 'text' ? (
-                                msg.content
-                            ) : msg.message_type === 'client_connected' || msg.message_type === 'client_disconnected' ? (
-                                <em>{msg.content}</em>
-                            ) : null}
-                        </div>
-                    </div>
-                ))}
+                    );
+                })}
                 <div ref={messagesEndRef} />
             </div>
 
@@ -527,11 +618,16 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                 <button type="submit">Send</button>
                 <input
                     type="file"
-                    onChange={handleFileUpload}
+                    onChange={handleFileSelect}
                     disabled={isUploading}
                     style={{ marginLeft: '10px' }}
                 />
-                {isUploading && <span>Uploading...</span>}
+                {isUploading && (
+                    <span style={{ marginLeft: '10px' }}>
+                        Uploading {uploadingFileName}... {uploadProgress}%
+                        <progress value={uploadProgress} max="100" style={{ marginLeft: '5px' }} />
+                    </span>
+                )}
             </form>
         </div>
     );

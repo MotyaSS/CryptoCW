@@ -14,10 +14,34 @@ const (
 	TwoFish EncryptionAlgorithm = "TwoFish"
 )
 
+type Mode string
+
+const (
+	ECB  Mode = "ECB"
+	CBC  Mode = "CBC"
+	PCBC Mode = "PCBC"
+	CFB  Mode = "CFB"
+	OFB  Mode = "OFB"
+	CTR  Mode = "CTR"
+)
+
+type Padding string
+
+const (
+	Zeros    Padding = "Zeros"
+	PKCS7    Padding = "PKCS7"
+	ISO10126 Padding = "ISO10126"
+	ANSIX923 Padding = "ANSIX923"
+)
+
 type Room struct {
-	Name             string
-	Password         string
-	Algo             EncryptionAlgorithm
-	Client1, Client2 *Client
-	ToC1, ToC2       chan Message
+	Name     string
+	Password string
+	Algo     EncryptionAlgorithm
+	Mode     Mode
+	Padding  Padding
+	Client1  *Client
+	ToC1     chan Message
+	Client2  *Client
+	ToC2     chan Message
 }

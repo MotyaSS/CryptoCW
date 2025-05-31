@@ -51,6 +51,8 @@ func (h *ChatHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) 
 	name := r.FormValue("room_name")
 	password := r.FormValue("password")
 	algorithm := r.FormValue("algorithm")
+	mode := r.FormValue("mode")
+	padding := r.FormValue("padding")
 
 	if name == "" || password == "" {
 		w.WriteHeader(http.StatusBadRequest)
@@ -67,8 +69,31 @@ func (h *ChatHandler) CreateRoomHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if mode != string(entity.ECB) &&
+		mode != string(entity.CBC) &&
+		mode != string(entity.PCBC) &&
+		mode != string(entity.CFB) &&
+		mode != string(entity.OFB) &&
+		mode != string(entity.CTR) {
+
+		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "invalid mode", http.StatusBadRequest)
+		slog.Warn("Handler.CreateRoomHandler invalid mode", "mode", mode)
+		return
+	}
+
+	if padding != string(entity.Zeros) &&
+		padding != string(entity.PKCS7) &&
+		padding != string(entity.ISO10126) &&
+		padding != string(entity.ANSIX923) {
+
+		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "invalid padding", http.StatusBadRequest)
+		slog.Warn("Handler.CreateRoomHandler invalid padding", "padding", padding)
+		return
+	}
 	// TODO: pass to kafka
-	err := h.s.CreateRoom(name, password, entity.EncryptionAlgorithm(algorithm))
+	err := h.s.CreateRoom(name, password, entity.EncryptionAlgorithm(algorithm), entity.Mode(mode), entity.Padding(padding))
 	if err != nil {
 		slog.Warn("Handler.DeleteRoomHandler failed to delete",
 			"err", err,
@@ -122,7 +147,7 @@ func (h *ChatHandler) JoinRoom(w http.ResponseWriter, r *http.Request) {
 
 	if err = h.s.Connect(name, password, entity.NewClient(username, ws)); err != nil {
 		slog.Warn("Handler.WSHandler failed to connect:", "error", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }

@@ -23,7 +23,7 @@ var RoomNotFoundError = errors.New("room not found")
 var RoomFullError = errors.New("room is full")
 var RoomPasswordError = errors.New("room password is incorrect")
 
-func (s *Service) CreateRoom(name string, password string, algo entity.EncryptionAlgorithm) error {
+func (s *Service) CreateRoom(name string, password string, algo entity.EncryptionAlgorithm, mode entity.Mode, padding entity.Padding) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -35,6 +35,8 @@ func (s *Service) CreateRoom(name string, password string, algo entity.Encryptio
 		Name:     name,
 		Password: password,
 		Algo:     algo,
+		Mode:     mode,
+		Padding:  padding,
 		ToC1:     make(chan entity.Message, 10),
 		ToC2:     make(chan entity.Message, 10),
 	}
