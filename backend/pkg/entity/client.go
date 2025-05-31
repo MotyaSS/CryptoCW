@@ -118,7 +118,7 @@ func (c *Client) handleRead() {
 
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				slog.Error("WebSocket read error:", err)
+				slog.Error("WebSocket read error:", "error", err)
 			}
 			return
 		}
@@ -128,7 +128,7 @@ func (c *Client) handleRead() {
 			if content, ok := msg.Content.(string); ok {
 				decoded, err := base64.StdEncoding.DecodeString(content)
 				if err != nil {
-					slog.Error("Failed to decode base64 content:", err)
+					slog.Error("Failed to decode base64 content:", "error", err)
 					continue
 				}
 				msg.Content = decoded
@@ -154,7 +154,7 @@ func (c *Client) handleRead() {
 		}
 
 		// For system messages, don't expect IV
-		if msg.MsgType != "text" && msg.MsgType != "file_start" {
+		if msg.MsgType == "client_disconnected" || msg.MsgType == "client_connected" {
 			msg.IV = nil
 		}
 
