@@ -182,6 +182,37 @@ func (c *RC5) DecryptCBC(ciphertext []byte, iv []byte) []byte {
 	return plaintext[:len(plaintext)-padLen]
 }
 
+// EncryptWithMode encrypts data using the specified mode and padding
+func (c *RC5) EncryptWithMode(data []byte, iv []byte, mode string, padding PaddingType) []byte {
+	// Get the mode implementation
+	modeImpl, err := GetMode(c, mode)
+	if err != nil {
+		return nil
+	}
+
+	// Add padding
+	blockSize := len(iv)
+	paddedData := Pad(data, blockSize, padding)
+
+	// Encrypt using the selected mode
+	return modeImpl.Encrypt(paddedData, iv)
+}
+
+// DecryptWithMode decrypts data using the specified mode and padding
+func (c *RC5) DecryptWithMode(ciphertext []byte, iv []byte, mode string, padding PaddingType) []byte {
+	// Get the mode implementation
+	modeImpl, err := GetMode(c, mode)
+	if err != nil {
+		return nil
+	}
+
+	// Decrypt using the selected mode
+	decrypted := modeImpl.Decrypt(ciphertext, iv)
+
+	// Remove padding
+	return Unpad(decrypted, padding)
+}
+
 // Helper functions
 
 func rotateLeft(x, y uint32) uint32 {
