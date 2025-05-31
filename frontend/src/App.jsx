@@ -8,18 +8,24 @@ function App() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [algorithm, setAlgorithm] = useState('RC5');
+    const [mode, setMode] = useState('CBC');
+    const [padding, setPadding] = useState('PKCS7');
 
-    const handleJoinRoom = (roomName, username, password, algo) => {
+    const handleJoinRoom = (roomName, username, password, algo, mode, padding) => {
         setCurrentRoom(roomName);
         setUsername(username);
         setPassword(password);
-        setAlgorithm(algo || 'RC5'); // Default to RC5 if not specified
+        setAlgorithm(algo || 'RC5');
+        setMode(mode || 'CBC');
+        setPadding(padding || 'PKCS7');
     };
 
     const handleLeaveRoom = () => {
         setCurrentRoom(null);
         setPassword('');
         setAlgorithm('RC5');
+        setMode('CBC');
+        setPadding('PKCS7');
     };
 
     return (
@@ -37,7 +43,12 @@ function App() {
                         username={username}
                         password={password}
                         algorithm={algorithm}
+                        mode={mode}
+                        padding={padding}
                         onLeaveRoom={handleLeaveRoom}
+                        setAlgorithm={setAlgorithm}
+                        setMode={setMode}
+                        setPadding={setPadding}
                     />
                 </div>
             )}

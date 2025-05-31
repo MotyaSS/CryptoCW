@@ -40,7 +40,7 @@ async function initWasm() {
 }
 
 // Encrypt a message
-async function encryptMessage(algorithm, key, message, iv) {
+async function encryptMessage(algorithm, key, message, iv, mode = 'CBC', padding = 'PKCS7') {
     await initWasm();
     
     try {
@@ -60,12 +60,14 @@ async function encryptMessage(algorithm, key, message, iv) {
             ivArray = iv;
         }
         
-        // Call the WASM encryption function
+        // Call the WASM encryption function with mode and padding
         const result = window.encryptMessage(
             algorithm,
             key,
             messageBytes,
-            ivArray
+            ivArray,
+            mode,
+            padding
         );
 
         if (!result) {
@@ -85,16 +87,18 @@ async function encryptMessage(algorithm, key, message, iv) {
 }
 
 // Decrypt a message
-async function decryptMessage(algorithm, key, encryptedData, iv) {
+async function decryptMessage(algorithm, key, encryptedData, iv, mode = 'CBC', padding = 'PKCS7') {
     await initWasm();
     
     try {
-        // Call the WASM decryption function with base64 strings
+        // Call the WASM decryption function with mode and padding
         const result = window.decryptMessage(
             algorithm,
             key,
             encryptedData,
-            iv
+            iv,
+            mode,
+            padding
         );
 
         if (!result) {

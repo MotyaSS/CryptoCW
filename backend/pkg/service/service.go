@@ -75,6 +75,21 @@ func (s *Service) Connect(roomName, roomPassword string, newClient *entity.Clien
 		newClient.To = room.ToC1
 		newClient.From = room.ToC2
 		newClient.StartServing()
+
+		// Send room settings to the first client
+		select {
+		case room.ToC1 <- entity.Message{
+			From:    "system",
+			MsgType: "room_settings",
+			Content: map[string]string{
+				"algorithm": string(room.Algo),
+				"mode":      string(room.Mode),
+				"padding":   string(room.Padding),
+			},
+			SentAt: time.Now(),
+		}:
+		default:
+		}
 		return nil
 	}
 
@@ -84,13 +99,27 @@ func (s *Service) Connect(roomName, roomPassword string, newClient *entity.Clien
 		newClient.To = room.ToC2
 		newClient.From = room.ToC1
 
+		// Send room settings to the second client
+		select {
+		case room.ToC2 <- entity.Message{
+			From:    "system",
+			MsgType: "room_settings",
+			Content: map[string]string{
+				"algorithm": string(room.Algo),
+				"mode":      string(room.Mode),
+				"padding":   string(room.Padding),
+			},
+			SentAt: time.Now(),
+		}:
+		default:
+		}
+
 		// Notify Client1 that Client2 has connected
-		// System messages don't need IV
 		select {
 		case room.ToC1 <- entity.Message{
 			From:    "system",
 			MsgType: "client_connected",
-			Content: newClient.Username, // Send username directly as string
+			Content: newClient.Username,
 			SentAt:  time.Now(),
 		}:
 		default:

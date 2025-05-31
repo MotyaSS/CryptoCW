@@ -6,7 +6,9 @@ function RoomManagement({ onJoinRoom }) {
         roomName: '',
         password: '',
         username: '',
-        algorithm: 'RC5' // Default to RC5
+        algorithm: 'RC5', // Default to RC5
+        mode: 'CBC',     // Default to CBC
+        padding: 'PKCS7' // Default to PKCS7
     });
     const [message, setMessage] = useState('');
 
@@ -23,7 +25,7 @@ function RoomManagement({ onJoinRoom }) {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: `room_name=${encodeURIComponent(formData.roomName)}&password=${encodeURIComponent(formData.password)}&algorithm=${encodeURIComponent(formData.algorithm)}`
+                body: `room_name=${encodeURIComponent(formData.roomName)}&password=${encodeURIComponent(formData.password)}&algorithm=${encodeURIComponent(formData.algorithm)}&mode=${encodeURIComponent(formData.mode)}&padding=${encodeURIComponent(formData.padding)}`
             });
 
             if (!response.ok) {
@@ -31,7 +33,7 @@ function RoomManagement({ onJoinRoom }) {
             }
 
             setMessage('Room created successfully!');
-            setFormData({ roomName: '', password: '', username: '', algorithm: 'RC5' });
+            setFormData({ roomName: '', password: '', username: '', algorithm: 'RC5', mode: 'CBC', padding: 'PKCS7' });
         } catch (error) {
             setMessage(`Error: ${error.message}`);
         }
@@ -53,7 +55,7 @@ function RoomManagement({ onJoinRoom }) {
             }
 
             setMessage('Room deleted successfully!');
-            setFormData({ roomName: '', password: '', username: '' });
+            setFormData({ roomName: '', password: '', username: '', algorithm: 'RC5', mode: 'CBC', padding: 'PKCS7' });
         } catch (error) {
             setMessage(`Error: ${error.message}`);
         }
@@ -62,7 +64,7 @@ function RoomManagement({ onJoinRoom }) {
     const handleJoin = (e) => {
         e.preventDefault();
         if (formData.roomName && formData.password && formData.username) {
-            onJoinRoom(formData.roomName, formData.username, formData.password, formData.algorithm);
+            onJoinRoom(formData.roomName, formData.username, formData.password, formData.algorithm, formData.mode, formData.padding);
         } else {
             setMessage('Please fill all fields');
         }
@@ -70,7 +72,7 @@ function RoomManagement({ onJoinRoom }) {
 
     return (
         <div className="room-management">
-            <div className="tabs">
+            <div className="tab-buttons">
                 <button
                     className={activeTab === 'join' ? 'active' : ''}
                     onClick={() => setActiveTab('join')}
@@ -95,7 +97,7 @@ function RoomManagement({ onJoinRoom }) {
 
             {activeTab === 'join' && (
                 <form onSubmit={handleJoin} className="room-form">
-                    <h2>Join Chat Room</h2>
+                    <h2>Join Room</h2>
                     <input
                         type="text"
                         name="roomName"
@@ -105,19 +107,19 @@ function RoomManagement({ onJoinRoom }) {
                         required
                     />
                     <input
-                        type="password"
-                        name="password"
-                        value={formData.password}
-                        onChange={handleChange}
-                        placeholder="Room Password"
-                        required
-                    />
-                    <input
                         type="text"
                         name="username"
                         value={formData.username}
                         onChange={handleChange}
                         placeholder="Your Username"
+                        required
+                    />
+                    <input
+                        type="password"
+                        name="password"
+                        value={formData.password}
+                        onChange={handleChange}
+                        placeholder="Room Password"
                         required
                     />
                     <button type="submit">Join Room</button>
@@ -143,15 +145,40 @@ function RoomManagement({ onJoinRoom }) {
                         placeholder="Room Password"
                         required
                     />
-                    <select
-                        name="algorithm"
-                        value={formData.algorithm}
-                        onChange={handleChange}
-                        required
-                    >
-                        <option value="RC5">RC5</option>
-                        <option value="TwoFish">TwoFish</option>
-                    </select>
+                    <div className="encryption-settings">
+                        <select
+                            name="algorithm"
+                            value={formData.algorithm}
+                            onChange={handleChange}
+                            required
+                        >
+                            <option value="RC5">RC5</option>
+                            <option value="TwoFish">TwoFish</option>
+                        </select>
+                        <select
+                            name="mode"
+                            value={formData.mode}
+                            onChange={handleChange}
+                            required
+                        >
+                            <option value="CBC">CBC</option>
+                            <option value="PCBC">PCBC</option>
+                            <option value="CFB">CFB</option>
+                            <option value="OFB">OFB</option>
+                            <option value="CTR">CTR</option>
+                        </select>
+                        <select
+                            name="padding"
+                            value={formData.padding}
+                            onChange={handleChange}
+                            required
+                        >
+                            <option value="Zeros">Zeros</option>
+                            <option value="ANSI_X923">ANSI X.923</option>
+                            <option value="PKCS7">PKCS7</option>
+                            <option value="ISO10126">ISO10126</option>
+                        </select>
+                    </div>
                     <button type="submit">Create Room</button>
                 </form>
             )}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { encryptMessage, decryptMessage, generateIV } from '../encryption';
 
-function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom }) {
+function ChatInterface({ roomName, username, password, algorithm, mode, padding, onLeaveRoom, setAlgorithm, setMode, setPadding }) {
     const [messages, setMessages] = useState([]);
     const [messageInput, setMessageInput] = useState('');
     const [socket, setSocket] = useState(null);
@@ -96,13 +96,30 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                 console.log('Parsed message data:', data);
 
                 switch (data.message_type) {
+                    case 'room_settings':
+                        // Update encryption settings from server
+                        const settings = data.content;
+                        if (settings.algorithm) setAlgorithm(settings.algorithm);
+                        if (settings.mode) setMode(settings.mode);
+                        if (settings.padding) setPadding(settings.padding);
+                        
+                        addMessage({
+                            from: 'System',
+                            message_type: 'text',
+                            content: `Room encryption: ${settings.algorithm} (${settings.mode} mode, ${settings.padding} padding)`,
+                            sent_at: data.sent_at
+                        });
+                        break;
+
                     case 'text':
                         try {
                             const decrypted = await decryptMessage(
                                 algorithm,
                                 password,
                                 data.content,
-                                data.iv
+                                data.iv,
+                                mode,
+                                padding
                             );
                             console.log('Decrypted message:', decrypted);
                             addMessage({
@@ -153,7 +170,9 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                                 algorithm,
                                 password,
                                 data.content,
-                                data.iv
+                                data.iv,
+                                mode,
+                                padding
                             );
                             const binaryStr = atob(decryptedBase64);
                             const chunkBytes = new Uint8Array(binaryStr.length);
@@ -264,7 +283,7 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                 newSocket.close();
             }
         };
-    }, [roomName, username, password, algorithm]);
+    }, [roomName, username, password, algorithm, mode, padding, setAlgorithm, setMode, setPadding]);
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
@@ -278,7 +297,9 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                     algorithm,
                     password,
                     messageInput,
-                    iv
+                    iv,
+                    mode,
+                    padding
                 );
 
                 // Convert IV to base64 for transmission
@@ -420,7 +441,9 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                         algorithm,
                         password,
                         chunkBase64,
-                        iv
+                        iv,
+                        mode,
+                        padding
                     );
                     const chunkMessage = {
                         from: username,
@@ -513,6 +536,8 @@ function ChatInterface({ roomName, username, password, algorithm, onLeaveRoom })
                 <h2>Chat Room: {roomName}</h2>
                 <div className="room-info">
                     <span>Algorithm: {algorithm}</span>
+                    <span>Mode: {mode}</span>
+                    <span>Padding: {padding}</span>
                     <button onClick={handleLeaveRoom} className="leave-button">
                         Leave Room
                     </button>
